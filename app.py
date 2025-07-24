@@ -11,8 +11,35 @@ SLACK_WEBHOOK_URL = "https://hooks.slack.com/services/T02AT5GK0/B0979LGTPKQ/b2nj
 @app.route('/webhook', methods=['POST'])
 def transform_webhook():
     try:
-        # Get the JSON data from ForumScout
-        forumscout_data = request.get_json()
+        # Log the incoming request for debugging
+        print("=== INCOMING WEBHOOK ===")
+        print(f"Headers: {dict(request.headers)}")
+        print(f"Content-Type: {request.content_type}")
+        
+        # Get the raw data first
+        raw_data = request.get_data(as_text=True)
+        print(f"Raw data: {raw_data}")
+        
+        # Try to parse JSON
+        try:
+            forumscout_data = request.get_json()
+            print(f"Parsed JSON: {forumscout_data}")
+        except Exception as json_error:
+            print(f"JSON parsing error: {json_error}")
+            # If JSON parsing fails, send raw data to Slack
+            slack_message = {
+                "text": f"⚠️ *ForumScout Webhook Received (Raw Data)*\n\n```{raw_data}```"
+            }
+            response = requests.post(SLACK_WEBHOOK_URL, json=slack_message)
+            return jsonify({"status": "success", "message": "Raw data sent to Slack"}), 200
+        
+        # Handle None or empty data
+        if not forumscout_data:
+            slack_message = {
+                "text": "⚠️ *ForumScout Webhook Received Empty Data*\n\nNo JSON data was provided."
+            }
+            response = requests.post(SLACK_WEBHOOK_URL, json=slack_message)
+            return jsonify({"status": "success", "message": "Empty data notification sent"}), 200
         
         # Handle test events
         if forumscout_data.get('event') == 'test':
@@ -26,7 +53,7 @@ def transform_webhook():
             
             if not mentions:
                 slack_message = {
-                    "text": "📭 No new mentions found in this ForumScout update."
+                    "text": "📭 *No new mentions found in this ForumScout update.*"
                 }
             else:
                 # Format multiple mentions
@@ -44,7 +71,7 @@ def transform_webhook():
                         'Neutral': '😐'
                     }.get(sentiment, '😐')
                     
-                    # Format each mention
+                    # Format each mention safely
                     message_parts.append(f"*Mention #{i}:*")
                     message_parts.append(f"📰 *Title:* {mention.get('title', 'No title')}")
                     message_parts.append(f"🌐 *Source:* {mention.get('source', 'Unknown')} ({mention.get('domain', 'N/A')})")
@@ -70,7 +97,9 @@ def transform_webhook():
                 }
         
         # Send to Slack
+        print(f"Sending to Slack: {slack_message}")
         response = requests.post(SLACK_WEBHOOK_URL, json=slack_message)
+        print(f"Slack response: {response.status_code}")
         
         if response.status_code == 200:
             return jsonify({"status": "success", "message": "Sent to Slack"}), 200
@@ -78,11 +107,31 @@ def transform_webhook():
             return jsonify({"status": "error", "message": f"Slack returned {response.status_code}"}), 500
             
     except Exception as e:
+        print(f"ERROR: {str(e)}")
+        # Send error info to Slack for debugging
+        try:
+            error_message = {
+                "text": f"🚨 *Webhook Error*\n\n```{str(e)}```\n\nRaw request data:\n```{request.get_data(as_text=True)}```"
+            }
+            requests.post(SLACK_WEBHOOK_URL, json=error_message)
+        except:
+            pass
         return jsonify({"status": "error", "message": str(e)}), 500
 
 @app.route('/health', methods=['GET'])
 def health_check():
     return jsonify({"status": "healthy", "message": "ForumScout to Slack transformer is running"}), 200
+
+@app.route('/', methods=['GET'])
+def root():
+    return jsonify({
+        "status": "healthy", 
+        "message": "ForumScout to Slack transformer is running",
+        "endpoints": {
+            "webhook": "/webhook (POST)",
+            "health": "/health (GET)"
+        }
+    }), 200
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=True)
