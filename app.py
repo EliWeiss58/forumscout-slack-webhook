@@ -5,7 +5,9 @@ import threading
 app = Flask(__name__)
 
 # Your Slack webhook URL
-SLACK_WEBHOOK_URL = "https://hooks.slack.com/services/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" def send_to_slack_async(message):
+SLACK_WEBHOOK_URL = "https://hooks.slack.com/services/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"
+
+def send_to_slack_async(message):
     """Send to Slack in background thread"""
     try:
         requests.post(SLACK_WEBHOOK_URL, json={"text": message}, timeout=5)
